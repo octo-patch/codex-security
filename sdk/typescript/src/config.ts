@@ -139,8 +139,12 @@ export function scanAuthenticationProvider(
   const provider = isObject(providers) ? providers[selected] : undefined;
   const preset = EXTERNAL_CODEX_PROVIDERS[selected];
   return isObject(provider) &&
-    Object.keys(provider).length === Object.keys(preset).length &&
-    Object.entries(preset).every(([key, value]) => provider[key] === value)
+    provider["base_url"] === preset.base_url &&
+    provider["env_key"] === preset.env_key &&
+    provider["wire_api"] === preset.wire_api &&
+    provider["requires_openai_auth"] !== true &&
+    provider["experimental_bearer_token"] == null &&
+    provider["auth"] == null
     ? selected
     : undefined;
 }

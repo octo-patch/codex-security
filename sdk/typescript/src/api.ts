@@ -4411,6 +4411,10 @@ export function selectedScanEnvironment(
   modelProvider?: unknown,
   config?: JsonObject,
 ): ProcessEnvironment {
+  if (config !== undefined && hasCommandAuth(config)) {
+    // Native auth commands can consume inputs not declared as provider keys.
+    return withoutOpenAiApiKeys(environment);
+  }
   const selectedProviderKey = isExternalModelProvider(modelProvider)
     ? EXTERNAL_CODEX_PROVIDERS[modelProvider].env_key
     : null;
@@ -4816,13 +4820,19 @@ export function scanPreflightCodexConfig(config: JsonObject): JsonObject {
     if (Object.keys(sanitized).length > 0) result["profiles"] = sanitized;
   }
   const modelProvider = scanModelProvider(result);
-  if (
-    isExternalModelProvider(modelProvider) &&
-    scanAuthenticationProvider(config) !== undefined
-  ) {
-    result["model_providers"] = {
-      [modelProvider]: { ...EXTERNAL_CODEX_PROVIDERS[modelProvider] },
-    };
+  if (isExternalModelProvider(modelProvider)) {
+    const preset = EXTERNAL_CODEX_PROVIDERS[modelProvider];
+    const providers = resolved["model_providers"];
+    const provider = isRecord(providers) ? providers[modelProvider] : undefined;
+    if (
+      modelProvider === "openrouter" ||
+      modelProvider === "fireworks" ||
+      (isRecord(provider) &&
+        Object.keys(provider).length === Object.keys(preset).length &&
+        Object.entries(preset).every(([key, value]) => provider[key] === value))
+    ) {
+      result["model_providers"] = { [modelProvider]: { ...preset } };
+    }
   } else if (modelProvider === "amazon-bedrock") {
     const providers = config["model_providers"];
     const provider = isRecord(providers) ? providers[modelProvider] : undefined;

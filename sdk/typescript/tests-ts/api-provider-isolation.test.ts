@@ -1116,6 +1116,8 @@ test.each(
         [false, "bearer"],
         [true, "bearer"],
         [false, "preset-key"],
+        [false, "preset-options"],
+        [true, "preset-options"],
         [false, "native-preset-key"],
         [true, "native-preset-key"],
         [false, "custom-key"],
@@ -1146,26 +1148,38 @@ test.each(
       { mode: 0o600 },
     );
     const bearerToken = `synthetic-bearer-${provider}`;
-    const definition =
-      nativeForm === "preset-key"
-        ? { ...EXTERNAL_CODEX_PROVIDERS[provider] }
-        : {
-            name: "Synthetic regional provider",
-            base_url:
-              provider === "minimax"
-                ? "https://api.minimax.io/v1"
-                : "https://api.minimax.cn/v1",
-            wire_api: "responses",
-            ...(nativeForm === "openai" || nativeForm === "native-preset-key"
-              ? { requires_openai_auth: true }
-              : { experimental_bearer_token: bearerToken }),
-            ...(nativeForm === "native-preset-key"
-              ? { env_key: "MINIMAX_API_KEY" }
-              : {}),
-            ...(nativeForm === "custom-key"
-              ? { env_key: "SYNTHETIC_GATEWAY_KEY" }
-              : {}),
-          };
+    const presetAuthentication =
+      nativeForm === "preset-key" || nativeForm === "preset-options";
+    const definition = presetAuthentication
+      ? {
+          ...EXTERNAL_CODEX_PROVIDERS[provider],
+          ...(nativeForm === "preset-options"
+            ? {
+                name: "Synthetic tuned provider",
+                request_max_retries: 5,
+                stream_max_retries: 4,
+                stream_idle_timeout_ms: 12345,
+                http_headers: { "X-Synthetic": "synthetic-value" },
+              }
+            : {}),
+        }
+      : {
+          name: "Synthetic regional provider",
+          base_url:
+            provider === "minimax"
+              ? "https://api.minimax.io/v1"
+              : "https://api.minimax.cn/v1",
+          wire_api: "responses",
+          ...(nativeForm === "openai" || nativeForm === "native-preset-key"
+            ? { requires_openai_auth: true }
+            : { experimental_bearer_token: bearerToken }),
+          ...(nativeForm === "native-preset-key"
+            ? { env_key: "MINIMAX_API_KEY" }
+            : {}),
+          ...(nativeForm === "custom-key"
+            ? { env_key: "SYNTHETIC_GATEWAY_KEY" }
+            : {}),
+        };
     const selected = {
       model: "MiniMax-M3",
       model_provider: provider,
@@ -1198,7 +1212,7 @@ test.each(
           ...(auth === "api-key"
             ? { OPENAI_API_KEY: "SYNTHETIC_OPENAI_KEY" }
             : {}),
-          ...(nativeForm === "preset-key" || nativeForm === "native-preset-key"
+          ...(presetAuthentication || nativeForm === "native-preset-key"
             ? { MINIMAX_API_KEY: "synthetic-explicit-provider-key" }
             : {}),
           ...(nativeForm === "custom-key"
@@ -1221,7 +1235,7 @@ test.each(
         ) => {
           const environment = options.env!;
           expect(options.apiKey).toBe(
-            nativeForm !== "preset-key" && auth === "api-key"
+            !presetAuthentication && auth === "api-key"
               ? "SYNTHETIC_OPENAI_KEY"
               : undefined,
           );
@@ -1237,7 +1251,7 @@ test.each(
           expect(settings.config["model_provider"]).toBe(provider);
           expect(settings.nativeProfile).toBe(options.nativeProfile);
           expect(settings.environment?.["MINIMAX_API_KEY"]).toBe(
-            nativeForm === "preset-key" || nativeForm === "native-preset-key"
+            presetAuthentication || nativeForm === "native-preset-key"
               ? "synthetic-explicit-provider-key"
               : undefined,
           );
@@ -1276,7 +1290,7 @@ test.each(
     );
     try {
       const expectedMethod =
-        nativeForm === "preset-key" || auth === "api-key"
+        presetAuthentication || auth === "api-key"
           ? "api_key"
           : "stored_credentials";
       expect(
@@ -1339,7 +1353,7 @@ test.each(["openrouter", "fireworks"] as const)(
 
 test.each(
   (["openrouter", "fireworks"] as const).flatMap((provider) =>
-    (["env_key", "header"] as const).flatMap((reference) =>
+    (["env_key", "header", "command"] as const).flatMap((reference) =>
       [false, true].map((profile) => [provider, reference, profile] as const),
     ),
   ),
@@ -1352,12 +1366,25 @@ test.each(
       scan = join(root, "scan");
     for (const path of [repository, home, scan])
       await mkdir(path, { mode: 0o700 });
-    const definition = {
+    const definition: JsonObject = {
       ...EXTERNAL_CODEX_PROVIDERS[provider],
       ...(reference === "env_key"
         ? { env_key: "MINIMAX_API_KEY" }
-        : { env_http_headers: { "X-Synthetic": "MINIMAX_API_KEY" } }),
+        : reference === "header"
+          ? { env_http_headers: { "X-Synthetic": "MINIMAX_API_KEY" } }
+          : {}),
+      ...(reference === "command"
+        ? {
+            auth: {
+              type: "command",
+              command: process.execPath,
+              cwd: home,
+              args: ["-e", "process.exit(1)"],
+            },
+          }
+        : {}),
     };
+    if (reference === "command") delete definition["env_key"];
     const selection = {
       model_provider: provider,
       model_providers: { [provider]: definition },
@@ -1367,9 +1394,12 @@ test.each(
       : selection;
     const environment = {
       CODEX_HOME: home,
+      OPENAI_API_KEY: "synthetic-openai-key",
+      CODEX_API_KEY: "synthetic-codex-key",
       OPENROUTER_API_KEY: "synthetic-openrouter-key",
       FIREWORKS_API_KEY: "synthetic-fireworks-key",
       MINIMAX_API_KEY: "synthetic-referenced-key",
+      SYNTHETIC_OPAQUE_INPUT: "synthetic-helper-input",
     };
     expect(
       selectedScanEnvironment(environment, "auto", provider, configuration)[
@@ -1397,6 +1427,8 @@ test.each(
         prepareOutputDir: async () => scan,
         repositoryRevision: async () => "synthetic-revision",
         createCodex: async (options) => {
+          expect(options.env?.["OPENAI_API_KEY"]).toBeUndefined();
+          expect(options.env?.["CODEX_API_KEY"]).toBeUndefined();
           expect(options.env?.["MINIMAX_API_KEY"]).toBe(
             "synthetic-referenced-key",
           );
@@ -1406,10 +1438,22 @@ test.each(
                 ? "FIREWORKS_API_KEY"
                 : "OPENROUTER_API_KEY"
             ],
-          ).toBeUndefined();
+          ).toBe(
+            reference === "command"
+              ? provider === "openrouter"
+                ? "synthetic-fireworks-key"
+                : "synthetic-openrouter-key"
+              : undefined,
+          );
+          expect(options.env?.["SYNTHETIC_OPAQUE_INPUT"]).toBe(
+            "synthetic-helper-input",
+          );
           const settings = await workerSettings(options.env!);
+          expect(
+            settings.environment?.["SYNTHETIC_OPAQUE_INPUT"],
+          ).toBeUndefined();
           expect(settings.environment?.["MINIMAX_API_KEY"]).toBe(
-            "synthetic-referenced-key",
+            reference === "command" ? undefined : "synthetic-referenced-key",
           );
           expect(
             await effectiveProvider(

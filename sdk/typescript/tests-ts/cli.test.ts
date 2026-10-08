@@ -2506,6 +2506,43 @@ describe("CLI", () => {
     },
   );
 
+  test.each(["minimax", "minimax-cn"] as const)(
+    "keeps %s API-key authentication with native provider options",
+    async (provider) => {
+      let config: CodexSecurityConfig | undefined;
+      expect(
+        await runCapturedCli(
+          main,
+          [
+            "scan",
+            ".",
+            "--provider",
+            provider,
+            "--model",
+            "MiniMax-M3",
+            "--auth",
+            "api-key",
+            "--codex",
+            `model_providers.${provider}.request_max_retries=5`,
+            "--codex",
+            `model_providers.${provider}.stream_idle_timeout_ms=12345`,
+          ],
+          dependencies({
+            environment: { MINIMAX_API_KEY: "synthetic-provider-key" },
+            onConfig: (value) => (config = value),
+          }),
+        ),
+      ).toBe(0);
+      expect(config?.codexOverrides?.["model_providers"]).toMatchObject({
+        [provider]: {
+          env_key: "MINIMAX_API_KEY",
+          request_max_retries: 5,
+          stream_idle_timeout_ms: 12345,
+        },
+      });
+    },
+  );
+
   test("routes scans through the built-in Amazon Bedrock provider", async () => {
     for (const options of [
       ["--provider", "amazon-bedrock", "--model", "openai.gpt-5.6-luna"],
