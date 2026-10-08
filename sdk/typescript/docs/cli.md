@@ -537,6 +537,12 @@ executable outside all saved scan targets. If a historical target includes the
 available Git installation, use `codex-security dedupe --scan SCAN_ID` with an
 explicit saved scan ID. Exact-path `latest` lookup still works without Git.
 
+Saved scan recipes retain MiniMax preset retry counts, stream idle timeouts,
+websocket support, and display names when the provider endpoint and key source
+still match the preset. Literal credentials and custom provider headers, query
+parameters, endpoints, and authentication tables are not saved. Recipes using
+those custom settings require the original native Codex configuration for replay.
+
 Repeat `--codex KEY=VALUE` for supported native settings. Quote strings as TOML:
 `--codex 'model_reasoning_effort="high"'`. Repeated or conflicting keys are
 rejected, including a `--model` or `--effort` flag plus its native equivalent.

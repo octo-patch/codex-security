@@ -6,7 +6,10 @@ import {
   resolveCodexProfile,
   type JsonObject,
 } from "../src/config.js";
-import { selectedScanEnvironment } from "../src/api.js";
+import {
+  selectedScanEnvironment,
+  scanPreflightCodexConfig,
+} from "../src/api.js";
 import { preparedRuntime } from "./support/api-events.js";
 import * as childProcess from "node:child_process";
 import { spawn } from "node:child_process";
@@ -1118,6 +1121,8 @@ test.each(
         [false, "preset-key"],
         [false, "preset-options"],
         [true, "preset-options"],
+        [false, "saved-options"],
+        [true, "saved-options"],
         [false, "native-preset-key"],
         [true, "native-preset-key"],
         [false, "custom-key"],
@@ -1149,17 +1154,21 @@ test.each(
     );
     const bearerToken = `synthetic-bearer-${provider}`;
     const presetAuthentication =
-      nativeForm === "preset-key" || nativeForm === "preset-options";
+      nativeForm === "preset-key" ||
+      nativeForm === "preset-options" ||
+      nativeForm === "saved-options";
     const definition = presetAuthentication
       ? {
           ...EXTERNAL_CODEX_PROVIDERS[provider],
-          ...(nativeForm === "preset-options"
+          ...(["preset-options", "saved-options"].includes(nativeForm)
             ? {
                 name: "Synthetic tuned provider",
                 request_max_retries: 5,
                 stream_max_retries: 4,
                 stream_idle_timeout_ms: 12345,
-                http_headers: { "X-Synthetic": "synthetic-value" },
+                ...(nativeForm === "preset-options"
+                  ? { http_headers: { "X-Synthetic": "synthetic-value" } }
+                  : { supports_websockets: false }),
               }
             : {}),
         }
@@ -1195,7 +1204,9 @@ test.each(
     let checked = false;
     const client = new TestClient(
       {
-        codexOverrides: {
+        codexOverrides: (nativeForm === "saved-options"
+          ? scanPreflightCodexConfig
+          : (value: JsonObject) => value)({
           features: { api_key_model_discovery: false },
           ...(profile
             ? {
@@ -1204,7 +1215,7 @@ test.each(
                 profiles: { regional: selected },
               }
             : selected),
-        },
+        }),
       },
       {
         environment: {
@@ -1244,7 +1255,7 @@ test.each(
             "utf8",
           );
           expect(preflight.includes("MINIMAX_API_KEY")).toBe(
-            nativeForm === "preset-key",
+            nativeForm === "preset-key" || nativeForm === "saved-options",
           );
           expect(preflight).not.toContain(bearerToken);
           const settings = await workerSettings(environment);

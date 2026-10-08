@@ -4824,14 +4824,45 @@ export function scanPreflightCodexConfig(config: JsonObject): JsonObject {
     const preset = EXTERNAL_CODEX_PROVIDERS[modelProvider];
     const providers = resolved["model_providers"];
     const provider = isRecord(providers) ? providers[modelProvider] : undefined;
-    if (
-      modelProvider === "openrouter" ||
-      modelProvider === "fireworks" ||
-      (isRecord(provider) &&
-        Object.keys(provider).length === Object.keys(preset).length &&
-        Object.entries(preset).every(([key, value]) => provider[key] === value))
-    ) {
+    if (modelProvider === "openrouter" || modelProvider === "fireworks") {
       result["model_providers"] = { [modelProvider]: { ...preset } };
+    } else if (
+      isRecord(provider) &&
+      scanAuthenticationProvider(config) === modelProvider
+    ) {
+      const projected: JsonObject = { ...preset };
+      const replayable = Object.entries(provider).every(([key, value]) => {
+        if (key === "name" && safeString(value)) {
+          projected[key] = value;
+          return true;
+        }
+        if (Object.hasOwn(preset, key))
+          return value === (preset as JsonObject)[key];
+        if (
+          [
+            "request_max_retries",
+            "stream_max_retries",
+            "stream_idle_timeout_ms",
+          ].includes(key) &&
+          safeInteger(value)
+        ) {
+          projected[key] = value;
+          return true;
+        }
+        if (
+          (key === "supports_websockets" && typeof value === "boolean") ||
+          (key === "requires_openai_auth" && value === false)
+        ) {
+          projected[key] = value;
+          return true;
+        }
+        return (
+          (key === "auth" || key === "experimental_bearer_token") &&
+          value == null
+        );
+      });
+      if (replayable)
+        result["model_providers"] = { [modelProvider]: projected };
     }
   } else if (modelProvider === "amazon-bedrock") {
     const providers = config["model_providers"];

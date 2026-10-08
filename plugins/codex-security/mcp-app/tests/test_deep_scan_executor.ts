@@ -1444,7 +1444,9 @@ env_key = "SYNTHETIC_GATEWAY_KEY"`,
                         : "https://api.minimax.cn/v1",
                     wire_api: "responses",
                     request_max_retries: 5,
+                    stream_max_retries: 4,
                     stream_idle_timeout_ms: 12345,
+                    supports_websockets: false,
                     ...(nativeBearer
                       ? {
                           experimental_bearer_token: `synthetic-bearer-${index}`,
