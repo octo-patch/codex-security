@@ -1344,6 +1344,8 @@ env_key = "SYNTHETIC_GATEWAY_KEY"`,
         {},
         { model: "MiniMax-M3", reasoningEffort: "high" },
         { model: "MiniMax-M2.7", reasoningEffort: "medium" },
+        { model: "synthetic-openrouter-model", reasoningEffort: "high" },
+        { model: "synthetic-fireworks-model", reasoningEffort: "high" },
       ];
       const providerKeys = settings.map((_, index) =>
         index === 0 ? undefined : ` synthetic-gateway-key-${index} `,
@@ -1406,19 +1408,26 @@ env_key = "SYNTHETIC_GATEWAY_KEY"`,
             literalFilesystemDenies: [deepPath, codexHome],
             globScanMaxDepth: trustedParentSandboxWithDenials.globScanMaxDepth,
           };
-          const minimax = index >= 6;
+          const minimax = index === 6 || index === 7;
+          const crossPreset = index >= 8;
           const nativeBearer = minimax && expected === "auto";
           const nativeKey = minimax && expected === "concise";
           const provider =
             index === 0
               ? undefined
-              : minimax
-                ? index === 6
-                  ? "minimax"
-                  : "minimax-cn"
-                : "synthetic.gateway";
+              : crossPreset
+                ? index === 8
+                  ? "openrouter"
+                  : "fireworks"
+                : minimax
+                  ? index === 6
+                    ? "minimax"
+                    : "minimax-cn"
+                  : "synthetic.gateway";
           const providerKey =
-            minimax && !nativeKey ? "MINIMAX_API_KEY" : "SYNTHETIC_GATEWAY_KEY";
+            crossPreset || (minimax && !nativeKey)
+              ? "MINIMAX_API_KEY"
+              : "SYNTHETIC_GATEWAY_KEY";
           const providerConfig: Record<string, unknown> | undefined =
             index === 0
               ? undefined
@@ -1440,7 +1449,7 @@ env_key = "SYNTHETIC_GATEWAY_KEY"`,
                     name: `Synthetic gateway ${index}`,
                     base_url: `https://gateway-${index}.example.test/v1`,
                     wire_api: "responses",
-                    env_key: "SYNTHETIC_GATEWAY_KEY",
+                    env_key: providerKey,
                     env_http_headers: {
                       "X-Synthetic": "SYNTHETIC_HEADER_VALUE",
                     },
@@ -1740,16 +1749,18 @@ env_key = "SYNTHETIC_GATEWAY_KEY"`,
               workerConfigurations[index].knowledgeDocuments,
             );
             assert.equal(invocation.codexHome, await realpath(codexHome));
-            const minimax = index >= 6;
+            const minimax = index === 6 || index === 7;
+            const crossPreset = index >= 8;
             assert.equal(
               invocation.providerKey,
-              minimax && expected !== "concise"
+              crossPreset || (minimax && expected !== "concise")
                 ? undefined
                 : providerKeys[index],
             );
             assert.equal(
               invocation.minimaxKey,
-              minimax && expected !== "auto" && expected !== "concise"
+              crossPreset ||
+                (minimax && expected !== "auto" && expected !== "concise")
                 ? providerKeys[index]
                 : undefined,
             );

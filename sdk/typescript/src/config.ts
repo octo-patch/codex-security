@@ -137,10 +137,12 @@ export function scanAuthenticationProvider(
   }
   const providers = resolveCodexProfile(config)["model_providers"];
   const provider = isObject(providers) ? providers[selected] : undefined;
+  const preset = EXTERNAL_CODEX_PROVIDERS[selected];
   return isObject(provider) &&
-    provider["env_key"] !== EXTERNAL_CODEX_PROVIDERS[selected].env_key
-    ? undefined
-    : selected;
+    Object.keys(provider).length === Object.keys(preset).length &&
+    Object.entries(preset).every(([key, value]) => provider[key] === value)
+    ? selected
+    : undefined;
 }
 
 /** @internal Native Codex validates the auth table, including invalid selections. */

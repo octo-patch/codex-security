@@ -140,7 +140,12 @@ export async function runComponentScans(
       authenticationProvider,
       hasCommandAuth(configuration),
     );
-    environment = selectedScanEnvironment(source, auth, authenticationProvider);
+    environment = selectedScanEnvironment(
+      source,
+      auth,
+      authenticationProvider,
+      configuration,
+    );
   }
   const repository = await normalizeRepository(
     options.repository,

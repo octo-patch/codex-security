@@ -1446,6 +1446,7 @@ export async function runCodexSkillCommand(
         processEnvironment,
         authentication.method === "command" ? "chatgpt" : output.auth,
         authenticationProvider,
+        config,
       );
       if (
         explicitChatgpt &&
@@ -1562,7 +1563,7 @@ export async function runCodexSkillCommand(
         apiKey = environmentValue(selected, authentication.source)?.trim();
         // Match the SDK's key selection for native and nested plugin workers.
         selected = {
-          ...selectedScanEnvironment(selected, "chatgpt"),
+          ...selectedScanEnvironment(selected, "chatgpt", undefined, config),
           CODEX_API_KEY: apiKey,
         };
         if (output.appServer !== undefined) {
@@ -7456,35 +7457,16 @@ async function runSkill(
   );
   const provider =
     options.provider ?? (overrides["model_provider"] as string | undefined);
-  let providerConfiguration =
+  const providerConfiguration =
     options.providerConfiguration ??
     (provider === undefined
       ? undefined
-      : (
+      : ((
           overrides["model_providers"] as Record<string, JsonObject> | undefined
-        )?.[provider]);
-  if (
-    providerConfiguration === undefined &&
-    isExternalModelProvider(provider)
-  ) {
-    const ambientConfig =
-      skill === "validation"
-        ? {}
-        : resolveCodexProfile(
-            await readCodexHomeConfig(
-              options.environment ?? dependencies.environment,
-            ),
-          );
-    const ambientProvider = (
-      ambientConfig["model_providers"] as Record<string, JsonObject> | undefined
-    )?.[provider];
-    if (
-      provider === "openrouter" ||
-      provider === "fireworks" ||
-      ambientProvider === undefined
-    )
-      providerConfiguration = EXTERNAL_CODEX_PROVIDERS[provider];
-  }
+        )?.[provider] ??
+        (provider === "openrouter" || provider === "fireworks"
+          ? EXTERNAL_CODEX_PROVIDERS[provider]
+          : undefined)));
   const effectiveOverrides = resolveCommandAuthConfig(
     mergeCodexOverrides(
       overrides,
@@ -8354,7 +8336,7 @@ async function executeScan(
             effectiveConfiguration["model_providers"] as
               Record<string, JsonObject> | undefined
           )?.[provider] ??
-          (isExternalModelProvider(provider)
+          (provider === "openrouter" || provider === "fireworks"
             ? EXTERNAL_CODEX_PROVIDERS[provider]
             : undefined),
       };

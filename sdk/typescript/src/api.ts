@@ -1316,7 +1316,8 @@ export class CodexSecurity {
         environment: selectedScanEnvironment(
           runtime.environment,
           options.auth,
-          modelProvider,
+          scanAuthenticationProvider(effectiveConfig),
+          effectiveConfig,
         ),
       };
       for (const root of [
@@ -1368,6 +1369,7 @@ export class CodexSecurity {
             runtime.environment,
             options.auth,
             scanAuthenticationProvider(effectiveConfig),
+            effectiveConfig,
           ),
         ),
         ...(session.apiKey === null
@@ -2724,6 +2726,7 @@ export class CodexSecurity {
                 : runtime.environment,
               auth,
               scanAuthenticationProvider(sessionConfig),
+              sessionConfig,
             ),
           ),
         ),
@@ -2866,6 +2869,7 @@ export class CodexSecurity {
           : this.#dependencies.environment,
         options.auth,
         authenticationProvider,
+        requestedConfig,
       );
       if (this.#dependencies.prepareRuntime === undefined) {
         const credentialHome = await prepareCodexSecurityCredentialHome(
@@ -3531,6 +3535,7 @@ export class CodexSecurity {
         : this.#dependencies.environment,
       auth,
       authenticationProvider,
+      requestedConfig,
     );
     const codexHome = await realpath(
       codexSecurityCredentialHome(processEnvironment),
@@ -4404,6 +4409,7 @@ export function selectedScanEnvironment(
   environment: ProcessEnvironment,
   auth: ScanAuthMode = "auto",
   modelProvider?: unknown,
+  config?: JsonObject,
 ): ProcessEnvironment {
   const selectedProviderKey = isExternalModelProvider(modelProvider)
     ? EXTERNAL_CODEX_PROVIDERS[modelProvider].env_key
@@ -4412,8 +4418,19 @@ export function selectedScanEnvironment(
   if (auth !== "chatgpt" && selectedProviderKey === null && !bedrockProvider) {
     return environment;
   }
+  const configuredKeys = new Set(
+    configuredProviderEnvironmentNames(config ?? {}).map((name) =>
+      process.platform === "win32" ? name.toUpperCase() : name,
+    ),
+  );
   return Object.fromEntries(
     Object.entries(withoutOpenAiApiKeys(environment)).filter(([name]) => {
+      if (
+        configuredKeys.has(
+          process.platform === "win32" ? name.toUpperCase() : name,
+        )
+      )
+        return true;
       const key = name.toUpperCase();
       if (
         Object.values(EXTERNAL_CODEX_PROVIDERS).some(
@@ -4882,6 +4899,24 @@ async function pluginForwardsWorkerProviderSelection(
   );
 }
 
+function configuredProviderEnvironmentNames(config: JsonObject): string[] {
+  const providers = resolveCodexProfile(config)["model_providers"];
+  return isRecord(providers)
+    ? Object.values(providers)
+        .flatMap((provider) =>
+          isRecord(provider)
+            ? [
+                provider["env_key"],
+                ...(isRecord(provider["env_http_headers"])
+                  ? Object.values(provider["env_http_headers"])
+                  : []),
+              ]
+            : [],
+        )
+        .filter((name): name is string => typeof name === "string")
+    : [];
+}
+
 function selectedWorkerRuntimeConfig(
   config: JsonObject,
   selectedProvider: unknown,
@@ -4892,20 +4927,7 @@ function selectedWorkerRuntimeConfig(
     typeof selectedProvider === "string" ? selectedProvider : undefined;
   const resolved = resolveCodexProfile(config);
   const providers = resolved["model_providers"];
-  const providerEnvironmentNames = isRecord(providers)
-    ? Object.values(providers)
-        .flatMap((providerConfig) =>
-          isRecord(providerConfig)
-            ? [
-                providerConfig["env_key"],
-                ...(isRecord(providerConfig["env_http_headers"])
-                  ? Object.values(providerConfig["env_http_headers"])
-                  : []),
-              ]
-            : [],
-        )
-        .filter((name): name is string => typeof name === "string")
-    : [];
+  const providerEnvironmentNames = configuredProviderEnvironmentNames(config);
   const providerEnvironment = Object.fromEntries(
     providerEnvironmentNames.flatMap((name) => {
       const key =

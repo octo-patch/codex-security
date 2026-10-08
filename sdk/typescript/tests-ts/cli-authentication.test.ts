@@ -1893,6 +1893,12 @@ describe("skill authentication", () => {
       expect(result.status, result.stderr).toBe(0);
       expect(result.launch.environment).toEqual({
         MINIMAX_API_KEY: "SYNTHETIC_MINIMAX_KEY",
+        ...(withBearer
+          ? {
+              OPENAI_API_KEY: "SYNTHETIC_OTHER_OPENAI",
+              CODEX_API_KEY: "SYNTHETIC_OTHER_CODEX",
+            }
+          : {}),
       });
       expect(result.requests.map((request) => request.method)).not.toContain(
         "account/login/start",
@@ -1981,6 +1987,77 @@ describe("skill authentication", () => {
         wire_api: "responses",
         requires_openai_auth: true,
       });
+    },
+  );
+
+  test.each(
+    (["minimax", "minimax-cn"] as const).flatMap((provider) =>
+      (
+        [
+          ["validate", "override"],
+          ["patch", "override"],
+          ["verify-fix", "override"],
+          ["patch", "ambient"],
+          ["verify-fix", "ambient"],
+        ] as const
+      ).flatMap(([command, source]) =>
+        [false, true].map(
+          (hasKey) => [provider, command, source, hasKey] as const,
+        ),
+      ),
+    ),
+  )(
+    "%s native auth honors ChatGPT for %s %s configuration with matching preset key present=%p",
+    async (provider, command, source, hasKey) => {
+      const definition = {
+        ...EXTERNAL_CODEX_PROVIDERS[provider],
+        requires_openai_auth: true,
+      };
+      const result = await runProviderSkill(stateDirectory, {
+        command,
+        auth: "chatgpt",
+        storedCredentials: true,
+        overrides: [
+          `model_provider=${JSON.stringify(provider)}`,
+          ...(source === "override"
+            ? Object.entries(definition).map(
+                ([key, value]) =>
+                  `model_providers.${provider}.${key}=${JSON.stringify(value)}`,
+              )
+            : []),
+        ],
+        ...(source === "ambient"
+          ? {
+              ambientConfig: stringifyToml({
+                model_providers: { [provider]: definition },
+              }),
+            }
+          : {}),
+        environment: hasKey ? { MINIMAX_API_KEY: "SYNTHETIC_IGNORED_KEY" } : {},
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.launch.environment).toEqual({});
+      const homeProviders = parseToml(result.launch.config)[
+        "model_providers"
+      ] as Record<string, JsonObject> | undefined;
+      const override = result.launch.args.findLast((arg: string) =>
+        arg.startsWith("model_providers="),
+      );
+      const argumentProviders =
+        override === undefined
+          ? undefined
+          : (parseToml(override)["model_providers"] as Record<
+              string,
+              JsonObject
+            >);
+      const { env_key: _key, ...expected } = definition;
+      expect({
+        ...homeProviders?.[provider],
+        ...argumentProviders?.[provider],
+      }).toEqual(expected);
+      expect(result.requests.map((request) => request.method)).not.toContain(
+        "account/login/start",
+      );
     },
   );
 
@@ -2389,6 +2466,12 @@ describe("skill authentication", () => {
                 command,
                 auth,
                 modelProvider: provider,
+                codexOverrides: {
+                  model_provider: provider,
+                  model_providers: {
+                    [provider]: EXTERNAL_CODEX_PROVIDERS[provider],
+                  },
+                },
                 stdout: capture().stream,
                 stderr: capture().stream,
               },
