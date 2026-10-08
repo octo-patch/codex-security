@@ -123,19 +123,22 @@ export function scanModelProvider(config: Readonly<JsonObject>): unknown {
   return selectedProfile?.["model_provider"] ?? config["model_provider"];
 }
 
-/** @internal Preserve native bearer authentication when a provider becomes a preset. */
+/** @internal Preserve native configuration when adding provider presets. */
 export function scanAuthenticationProvider(
   config: Readonly<JsonObject>,
 ): unknown {
   const selected = scanModelProvider(config);
-  if (!isExternalModelProvider(selected) || hasCommandAuth(config)) {
+  if (
+    !isExternalModelProvider(selected) ||
+    selected === "openrouter" ||
+    selected === "fireworks"
+  ) {
     return selected;
   }
   const providers = resolveCodexProfile(config)["model_providers"];
   const provider = isObject(providers) ? providers[selected] : undefined;
   return isObject(provider) &&
-    typeof provider["experimental_bearer_token"] === "string" &&
-    typeof provider["env_key"] !== "string"
+    provider["env_key"] !== EXTERNAL_CODEX_PROVIDERS[selected].env_key
     ? undefined
     : selected;
 }

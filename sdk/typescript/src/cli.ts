@@ -1388,12 +1388,15 @@ export async function runCodexSkillCommand(
       const providerBearer =
         typeof providerConfiguration?.["experimental_bearer_token"] ===
         "string";
-      const nativeBearerAuth =
-        providerBearer &&
-        providerEnvKey === undefined &&
-        !commandAuth &&
-        isExternalModelProvider(provider);
-      const authenticationProvider = nativeBearerAuth ? undefined : provider;
+      const authenticationProvider =
+        typeof provider === "string"
+          ? scanAuthenticationProvider({
+              model_provider: provider,
+              ...(providerConfiguration === undefined
+                ? {}
+                : { model_providers: { [provider]: providerConfiguration } }),
+            })
+          : provider;
       const explicitChatgpt =
         output.auth === "chatgpt" &&
         !isExternalModelProvider(authenticationProvider);
@@ -7472,11 +7475,13 @@ async function runSkill(
               options.environment ?? dependencies.environment,
             ),
           );
+    const ambientProvider = (
+      ambientConfig["model_providers"] as Record<string, JsonObject> | undefined
+    )?.[provider];
     if (
-      scanAuthenticationProvider({
-        ...ambientConfig,
-        model_provider: provider,
-      }) !== undefined
+      provider === "openrouter" ||
+      provider === "fireworks" ||
+      ambientProvider === undefined
     )
       providerConfiguration = EXTERNAL_CODEX_PROVIDERS[provider];
   }

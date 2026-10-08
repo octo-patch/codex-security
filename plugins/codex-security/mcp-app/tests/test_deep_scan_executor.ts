@@ -1408,6 +1408,7 @@ env_key = "SYNTHETIC_GATEWAY_KEY"`,
           };
           const minimax = index >= 6;
           const nativeBearer = minimax && expected === "auto";
+          const nativeKey = minimax && expected === "concise";
           const provider =
             index === 0
               ? undefined
@@ -1416,9 +1417,8 @@ env_key = "SYNTHETIC_GATEWAY_KEY"`,
                   ? "minimax"
                   : "minimax-cn"
                 : "synthetic.gateway";
-          const providerKey = minimax
-            ? "MINIMAX_API_KEY"
-            : "SYNTHETIC_GATEWAY_KEY";
+          const providerKey =
+            minimax && !nativeKey ? "MINIMAX_API_KEY" : "SYNTHETIC_GATEWAY_KEY";
           const providerConfig: Record<string, unknown> | undefined =
             index === 0
               ? undefined
@@ -1434,7 +1434,7 @@ env_key = "SYNTHETIC_GATEWAY_KEY"`,
                       ? {
                           experimental_bearer_token: `synthetic-bearer-${index}`,
                         }
-                      : { env_key: "MINIMAX_API_KEY" }),
+                      : { env_key: providerKey }),
                   }
                 : {
                     name: `Synthetic gateway ${index}`,
@@ -1743,11 +1743,15 @@ env_key = "SYNTHETIC_GATEWAY_KEY"`,
             const minimax = index >= 6;
             assert.equal(
               invocation.providerKey,
-              minimax ? undefined : providerKeys[index],
+              minimax && expected !== "concise"
+                ? undefined
+                : providerKeys[index],
             );
             assert.equal(
               invocation.minimaxKey,
-              minimax && expected !== "auto" ? providerKeys[index] : undefined,
+              minimax && expected !== "auto" && expected !== "concise"
+                ? providerKeys[index]
+                : undefined,
             );
             assert.equal(process.env.MINIMAX_API_KEY, undefined);
             assert.equal(invocation.providerHeader, providerHeaders[index]);
