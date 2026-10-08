@@ -1372,8 +1372,9 @@ test.each(
       MINIMAX_API_KEY: "synthetic-referenced-key",
     };
     expect(
-      selectedScanEnvironment(environment, "auto", provider, configuration)
-        .MINIMAX_API_KEY,
+      selectedScanEnvironment(environment, "auto", provider, configuration)[
+        "MINIMAX_API_KEY"
+      ],
     ).toBe("synthetic-referenced-key");
     const workerSettings = await loadWorkerSettings(root);
     let checked = false;
