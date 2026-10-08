@@ -123,6 +123,23 @@ export function scanModelProvider(config: Readonly<JsonObject>): unknown {
   return selectedProfile?.["model_provider"] ?? config["model_provider"];
 }
 
+/** @internal Preserve native bearer authentication when a provider becomes a preset. */
+export function scanAuthenticationProvider(
+  config: Readonly<JsonObject>,
+): unknown {
+  const selected = scanModelProvider(config);
+  if (!isExternalModelProvider(selected) || hasCommandAuth(config)) {
+    return selected;
+  }
+  const providers = resolveCodexProfile(config)["model_providers"];
+  const provider = isObject(providers) ? providers[selected] : undefined;
+  return isObject(provider) &&
+    typeof provider["experimental_bearer_token"] === "string" &&
+    typeof provider["env_key"] !== "string"
+    ? undefined
+    : selected;
+}
+
 /** @internal Native Codex validates the auth table, including invalid selections. */
 export function hasCommandAuth(config: Readonly<JsonObject>): boolean {
   const selected = scanModelProvider(config);

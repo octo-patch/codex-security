@@ -1407,6 +1407,7 @@ env_key = "SYNTHETIC_GATEWAY_KEY"`,
             globScanMaxDepth: trustedParentSandboxWithDenials.globScanMaxDepth,
           };
           const minimax = index >= 6;
+          const nativeBearer = minimax && expected === "auto";
           const provider =
             index === 0
               ? undefined
@@ -1429,7 +1430,11 @@ env_key = "SYNTHETIC_GATEWAY_KEY"`,
                         ? "https://api.minimax.io/v1"
                         : "https://api.minimax.cn/v1",
                     wire_api: "responses",
-                    env_key: "MINIMAX_API_KEY",
+                    ...(nativeBearer
+                      ? {
+                          experimental_bearer_token: `synthetic-bearer-${index}`,
+                        }
+                      : { env_key: "MINIMAX_API_KEY" }),
                   }
                 : {
                     name: `Synthetic gateway ${index}`,
@@ -1456,6 +1461,19 @@ env_key = "SYNTHETIC_GATEWAY_KEY"`,
                       },
                     },
                   };
+          const environment: Record<string, string | undefined> | undefined =
+            index === 0
+              ? undefined
+              : {
+                  ...(nativeBearer
+                    ? {}
+                    : { [providerKey]: providerKeys[index] }),
+                  SYNTHETIC_HEADER_VALUE: providerHeaders[index],
+                  CODEX_SQLITE_HOME: path.join(
+                    fixture.root,
+                    `native-state-${index}`,
+                  ),
+                };
           return {
             knowledgePath: path.join(fixture.root, `knowledge-${index}`),
             knowledgeDocuments: {
@@ -1476,17 +1494,7 @@ env_key = "SYNTHETIC_GATEWAY_KEY"`,
             },
             provider,
             providerConfig,
-            environment:
-              index === 0
-                ? undefined
-                : {
-                    [providerKey]: providerKeys[index],
-                    SYNTHETIC_HEADER_VALUE: providerHeaders[index],
-                    CODEX_SQLITE_HOME: path.join(
-                      fixture.root,
-                      `native-state-${index}`,
-                    ),
-                  },
+            environment,
             endpoint,
             serviceTier,
             instructionsFile,
@@ -1739,7 +1747,7 @@ env_key = "SYNTHETIC_GATEWAY_KEY"`,
             );
             assert.equal(
               invocation.minimaxKey,
-              minimax ? providerKeys[index] : undefined,
+              minimax && expected !== "auto" ? providerKeys[index] : undefined,
             );
             assert.equal(process.env.MINIMAX_API_KEY, undefined);
             assert.equal(invocation.providerHeader, providerHeaders[index]);

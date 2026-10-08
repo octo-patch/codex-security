@@ -2,6 +2,7 @@ import { afterEach, expect, spyOn, test } from "bun:test";
 import { build } from "esbuild";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import { resolveCodexProfile, type JsonObject } from "../src/config.js";
+import { preparedRuntime } from "./support/api-events.js";
 import * as childProcess from "node:child_process";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
@@ -1101,4 +1102,152 @@ test.each([
     }
   },
   30_000,
+);
+
+test.each(
+  (["minimax", "minimax-cn"] as const).flatMap((provider) =>
+    (
+      [
+        [false, false],
+        [true, false],
+        [false, true],
+      ] as const
+    ).flatMap(([profile, withKey]) =>
+      (["auto", "chatgpt", "api-key"] as const).map(
+        (auth) => [provider, profile, withKey, auth] as const,
+      ),
+    ),
+  ),
+)(
+  "SDK auth preserves native %s bearer configuration and worker profiles (selected profile=%p, explicit env key=%p, auth=%s)",
+  async (provider, profile, withKey, auth) => {
+    const root = await temporaryDirectory();
+    const repository = join(root, "repository");
+    const home = join(root, "home");
+    const scan = join(root, "scan");
+    for (const directory of [repository, home, scan])
+      await mkdir(directory, { mode: 0o700 });
+    await writeFile(
+      join(home, "auth.json"),
+      JSON.stringify({
+        auth_mode: "apikey",
+        OPENAI_API_KEY: "SYNTHETIC_STORED_KEY",
+      }),
+      { mode: 0o600 },
+    );
+    const definition = {
+      name: "Synthetic regional provider",
+      base_url:
+        provider === "minimax"
+          ? "https://api.minimax.io/v1"
+          : "https://api.minimax.cn/v1",
+      wire_api: "responses",
+      experimental_bearer_token: `synthetic-bearer-${provider}`,
+      ...(withKey ? { env_key: "MINIMAX_API_KEY" } : {}),
+    };
+    const selected = {
+      model: "MiniMax-M3",
+      model_provider: provider,
+      model_providers: { [provider]: definition },
+    };
+    const workerSettings = await loadWorkerSettings(root);
+    let checked = false;
+    const client = new TestClient(
+      {
+        codexOverrides: {
+          features: { api_key_model_discovery: false },
+          ...(profile
+            ? {
+                model_provider: "openai",
+                profile: "regional",
+                profiles: { regional: selected },
+              }
+            : selected),
+        },
+      },
+      {
+        environment: {
+          CODEX_HOME: home,
+          ...(auth === "api-key"
+            ? { OPENAI_API_KEY: "SYNTHETIC_OPENAI_KEY" }
+            : {}),
+          ...(withKey
+            ? { MINIMAX_API_KEY: "synthetic-explicit-provider-key" }
+            : {}),
+        },
+        prepareRuntime: async () => ({
+          ...preparedRuntime(home),
+          configPath: join(root, "preflight.toml"),
+          deepScanConfigPath: join(home, "deep-scan.toml"),
+        }),
+        resolvePluginPython: async () => "/synthetic/python",
+        prepareOutputDir: async () => scan,
+        repositoryRevision: async () => "synthetic-revision",
+        createCodex: async (
+          options: import("@openai/codex-sdk").CodexOptions & {
+            nativeProfile?: string;
+          },
+        ) => {
+          const environment = options.env!;
+          expect(options.apiKey).toBe(
+            !withKey && auth === "api-key" ? "SYNTHETIC_OPENAI_KEY" : undefined,
+          );
+          const preflight = await readFile(
+            environment["CODEX_SECURITY_CONFIG_PATH"]!,
+            "utf8",
+          );
+          expect(preflight.includes("MINIMAX_API_KEY")).toBe(withKey);
+          expect(preflight).not.toContain(definition.experimental_bearer_token);
+          const settings = await workerSettings(environment);
+          expect(settings.config["model_provider"]).toBe(provider);
+          expect(settings.nativeProfile).toBe(options.nativeProfile);
+          expect(settings.environment?.["MINIMAX_API_KEY"]).toBe(
+            withKey ? "synthetic-explicit-provider-key" : undefined,
+          );
+          const nativeProfile = parseToml(
+            await readFile(
+              join(home, `${settings.nativeProfile}.config.toml`),
+              "utf8",
+            ),
+          );
+          expect(nativeProfile["model_providers"]).toEqual({
+            [provider]: definition,
+          });
+          expect(
+            await effectiveProvider(
+              environment,
+              scan,
+              profileConfigOverrides(settings.config),
+              settings.nativeProfile,
+            ),
+          ).toEqual(definition);
+          expect(
+            JSON.stringify({
+              config: options.config,
+              overrides: options.configOverrides,
+            }),
+          ).not.toContain(definition.experimental_bearer_token);
+          checked = true;
+          throw new Error("native bearer configuration checked");
+        },
+      },
+    );
+    try {
+      const expectedMethod =
+        withKey || auth === "api-key" ? "api_key" : "stored_credentials";
+      expect(
+        (await client.preflight(repository, { auth })).authentication.method,
+      ).toBe(expectedMethod);
+      expect(
+        (await client.preflightPolicy(repository, { auth })).authentication
+          .method,
+      ).toBe(expectedMethod);
+      await expect(
+        client.run(repository, { mode: "deep", auth }),
+      ).rejects.toThrow("native bearer configuration checked");
+      expect(checked).toBe(true);
+    } finally {
+      await client.close();
+    }
+  },
 );

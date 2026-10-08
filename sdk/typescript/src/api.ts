@@ -69,6 +69,7 @@ import {
   scanCyberAccessConfig,
   scanModelConfiguration,
   scanModelProvider,
+  scanAuthenticationProvider,
   structuredCodexConfig,
   type CodexSecurityConfig,
   type JsonObject,
@@ -823,7 +824,7 @@ export class CodexSecurity {
       authentication: scanAuthentication(
         this.#dependencies.environment,
         options.auth,
-        modelProvider,
+        scanAuthenticationProvider(configuration),
         hasCommandAuth(configuration),
       ),
       ...model,
@@ -1366,7 +1367,7 @@ export class CodexSecurity {
           selectedScanEnvironment(
             runtime.environment,
             options.auth,
-            modelProvider,
+            scanAuthenticationProvider(effectiveConfig),
           ),
         ),
         ...(session.apiKey === null
@@ -2707,7 +2708,6 @@ export class CodexSecurity {
       runtime,
       runtimeHome,
       python,
-      modelProvider,
       externalProvider,
       apiKey,
       sessionConfig,
@@ -2723,7 +2723,7 @@ export class CodexSecurity {
                 ? withoutOpenAiApiKeys(runtime.environment)
                 : runtime.environment,
               auth,
-              modelProvider,
+              scanAuthenticationProvider(sessionConfig),
             ),
           ),
         ),
@@ -2841,26 +2841,31 @@ export class CodexSecurity {
       );
       const commandAuth = hasCommandAuth(requestedConfig);
       const modelProvider = scanModelProvider(requestedConfig);
+      const authenticationProvider =
+        scanAuthenticationProvider(requestedConfig);
       const externalProvider =
-        !commandAuth && isExternalModelProvider(modelProvider)
-          ? EXTERNAL_CODEX_PROVIDERS[modelProvider]
+        !commandAuth && isExternalModelProvider(authenticationProvider)
+          ? EXTERNAL_CODEX_PROVIDERS[authenticationProvider]
           : null;
       let authentication = scanAuthentication(
         this.#dependencies.environment,
         options.auth,
-        modelProvider,
+        authenticationProvider,
         commandAuth,
       );
       const apiKey =
         authentication.method === "api_key"
-          ? environmentApiKey(this.#dependencies.environment, modelProvider)
+          ? environmentApiKey(
+              this.#dependencies.environment,
+              authenticationProvider,
+            )
           : null;
       const scanEnvironment = selectedScanEnvironment(
         commandAuth
           ? withoutOpenAiApiKeys(this.#dependencies.environment)
           : this.#dependencies.environment,
         options.auth,
-        modelProvider,
+        authenticationProvider,
       );
       if (this.#dependencies.prepareRuntime === undefined) {
         const credentialHome = await prepareCodexSecurityCredentialHome(
@@ -3002,7 +3007,7 @@ export class CodexSecurity {
           this.#dependencies.environment,
           runtime.codexHome,
           options.auth,
-          modelProvider,
+          authenticationProvider,
         );
       if (
         options.safetyIdentifier !== undefined &&
@@ -3519,13 +3524,13 @@ export class CodexSecurity {
     if (this.#dependencies.prepareRuntime !== undefined) {
       return await this.#dependencies.prepareRuntime(this.config, signal);
     }
-    const modelProvider = scanModelProvider(requestedConfig);
+    const authenticationProvider = scanAuthenticationProvider(requestedConfig);
     const processEnvironment = selectedScanEnvironment(
       hasCommandAuth(requestedConfig)
         ? withoutOpenAiApiKeys(this.#dependencies.environment)
         : this.#dependencies.environment,
       auth,
-      modelProvider,
+      authenticationProvider,
     );
     const codexHome = await realpath(
       codexSecurityCredentialHome(processEnvironment),
@@ -3578,8 +3583,8 @@ export class CodexSecurity {
           : join(deepScanConfigDirectory, "deep-scan-config.toml");
       const credentialsAvailable =
         hasCommandAuth(requestedConfig) ||
-        isExternalModelProvider(modelProvider) ||
-        modelProvider === "amazon-bedrock"
+        isExternalModelProvider(authenticationProvider) ||
+        authenticationProvider === "amazon-bedrock"
           ? false
           : await initialCredentialsAvailable(
               processEnvironment,
@@ -4794,7 +4799,10 @@ export function scanPreflightCodexConfig(config: JsonObject): JsonObject {
     if (Object.keys(sanitized).length > 0) result["profiles"] = sanitized;
   }
   const modelProvider = scanModelProvider(result);
-  if (isExternalModelProvider(modelProvider)) {
+  if (
+    isExternalModelProvider(modelProvider) &&
+    scanAuthenticationProvider(config) !== undefined
+  ) {
     result["model_providers"] = {
       [modelProvider]: { ...EXTERNAL_CODEX_PROVIDERS[modelProvider] },
     };

@@ -18,6 +18,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, test, mock } from "bun:test";
 import { parse as parseToml } from "smol-toml";
 import { main, runCodexSkillCommand } from "../src/cli.js";
+import { EXTERNAL_CODEX_PROVIDERS } from "../src/config.js";
 import {
   CodexSecurityError,
   type JsonObject,
@@ -1736,6 +1737,10 @@ describe("skill authentication", () => {
     ["fireworks", "api-key"],
     ["openrouter", "chatgpt"],
     ["fireworks", "chatgpt"],
+    ["minimax", "api-key"],
+    ["minimax-cn", "api-key"],
+    ["minimax", "chatgpt"],
+    ["minimax-cn", "chatgpt"],
   ] as const)(
     "preserves OPENAI_API_KEY when configured as the %s provider key with %s auth",
     async (provider, auth) => {
@@ -1764,15 +1769,25 @@ describe("skill authentication", () => {
     },
   );
 
-  test.each([
-    ["validate", "override"],
-    ["patch", "override"],
-    ["verify-fix", "override"],
-    ["patch", "ambient"],
-    ["verify-fix", "ambient"],
-  ] as const)(
-    "%s uses native provider bearer authentication from %s without an OpenAI login",
-    async (command, source) => {
+  test.each(
+    (
+      [
+        ["validate", "override"],
+        ["patch", "override"],
+        ["verify-fix", "override"],
+        ["patch", "ambient"],
+        ["verify-fix", "ambient"],
+      ] as const
+    ).flatMap(([command, source]) =>
+      ["gateway", "minimax", "minimax-cn"].flatMap((provider) =>
+        (["auto", "chatgpt", "api-key"] as const).map(
+          (auth) => [command, source, provider, auth] as const,
+        ),
+      ),
+    ),
+  )(
+    "%s preserves native provider bearer authentication from %s (%s, %s)",
+    async (command, source, provider, auth) => {
       const providerConfig = {
         name: "Synthetic gateway",
         base_url: "https://gateway.example.test/v1",
@@ -1785,35 +1800,93 @@ describe("skill authentication", () => {
       );
       const result = await runProviderSkill(stateDirectory, {
         command,
-        auth: "auto",
+        auth,
+        storedCredentials: auth === "chatgpt",
+        environment:
+          auth === "api-key" ? { OPENAI_API_KEY: "SYNTHETIC_OPENAI_KEY" } : {},
         overrides: [
-          'model_provider="gateway"',
+          `model_provider=${JSON.stringify(provider)}`,
           ...(source === "override"
-            ? settings.map((setting) => `model_providers.gateway.${setting}`)
+            ? settings.map(
+                (setting) => `model_providers.${provider}.${setting}`,
+              )
             : []),
         ],
         ...(source === "ambient"
           ? {
-              ambientConfig: ["[model_providers.gateway]", ...settings].join(
-                "\n",
-              ),
+              ambientConfig: [
+                `[model_providers.${provider}]`,
+                ...settings,
+              ].join("\n"),
             }
           : {}),
       });
       expect(result.status, result.stderr).toBe(0);
-      expect(result.launch.environment).toEqual({});
-      if (source === "override") {
-        const override = result.launch.args.findLast((arg: string) =>
-          arg.startsWith("model_providers="),
-        );
-        expect(parseToml(override)["model_providers"]).toEqual({
-          gateway: providerConfig,
-        });
-      } else {
-        expect(parseToml(result.launch.config)["model_providers"]).toEqual({
-          gateway: providerConfig,
-        });
-      }
+      expect(result.launch.environment).toEqual(
+        auth === "api-key" ? { OPENAI_API_KEY: "SYNTHETIC_OPENAI_KEY" } : {},
+      );
+      const override = result.launch.args.findLast((arg: string) =>
+        arg.startsWith("model_providers="),
+      );
+      const homeProviders = parseToml(result.launch.config)[
+        "model_providers"
+      ] as Record<string, JsonObject> | undefined;
+      const argumentProviders =
+        override === undefined
+          ? undefined
+          : (parseToml(override)["model_providers"] as Record<
+              string,
+              JsonObject
+            >);
+      const { experimental_bearer_token: _token, ...storedProvider } =
+        providerConfig;
+      expect({
+        ...homeProviders?.[provider],
+        ...argumentProviders?.[provider],
+      }).toEqual(auth === "chatgpt" ? storedProvider : providerConfig);
+      expect(result.requests.map((request) => request.method)).not.toContain(
+        "account/login/start",
+      );
+    },
+  );
+
+  test.each(
+    (["validate", "patch", "verify-fix"] as const).flatMap((command) =>
+      (["minimax", "minimax-cn"] as const).flatMap((provider) =>
+        [false, true].map(
+          (withBearer) => [command, provider, withBearer] as const,
+        ),
+      ),
+    ),
+  )(
+    "%s retains the %s preset key with native bearer configured=%p",
+    async (command, provider, withBearer) => {
+      const providerConfig = {
+        ...EXTERNAL_CODEX_PROVIDERS[provider],
+        ...(withBearer
+          ? { experimental_bearer_token: "SYNTHETIC_FALLBACK_TOKEN" }
+          : {}),
+      };
+      const result = await runProviderSkill(stateDirectory, {
+        command,
+        auth: "auto",
+        overrides: [
+          `model_provider=${JSON.stringify(provider)}`,
+          ...Object.entries(providerConfig).map(
+            ([key, value]) =>
+              `model_providers.${provider}.${key}=${JSON.stringify(value)}`,
+          ),
+        ],
+        environment: {
+          MINIMAX_API_KEY: "SYNTHETIC_MINIMAX_KEY",
+          OPENAI_API_KEY: "SYNTHETIC_OTHER_OPENAI",
+          CODEX_API_KEY: "SYNTHETIC_OTHER_CODEX",
+        },
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.launch.environment).toEqual({
+        MINIMAX_API_KEY: "SYNTHETIC_MINIMAX_KEY",
+      });
       expect(result.requests.map((request) => request.method)).not.toContain(
         "account/login/start",
       );
@@ -2208,7 +2281,7 @@ describe("skill authentication", () => {
       });
     },
   );
-  test.each(["patch", "verify-fix"] as const)(
+  test.each(["validate", "patch", "verify-fix"] as const)(
     "%s requires the selected external provider key",
     async (command) => {
       for (const [provider, key] of [
