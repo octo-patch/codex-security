@@ -143,16 +143,21 @@ export FIREWORKS_API_KEY="<your-fireworks-api-key>"
 codex-security scan . --provider fireworks --model accounts/fireworks/models/qwen3-235b-a22b
 
 export MINIMAX_API_KEY="<your-global-minimax-api-key>"
+codex-security scan . --provider minimax --model MiniMax-M3.1-Flash
+# Optional larger model, using the same regional key:
 codex-security scan . --provider minimax --model MiniMax-M3
 # Use the China API with a key for that region:
 export MINIMAX_API_KEY="<your-china-minimax-api-key>"
-codex-security scan . --provider minimax-cn --model MiniMax-M3
+codex-security scan . --provider minimax-cn --model MiniMax-M3.1-Flash
 ```
 
 The MiniMax presets use the native Responses API at `https://api.minimax.io/v1`
 (global) and `https://api.minimax.cn/v1` (China). They share the `MINIMAX_API_KEY`
 variable; supply the key for the selected region. The default provider remains
-OpenAI, and external provider presets require an explicit model.
+OpenAI, and external provider presets require an explicit model. Start with
+`MiniMax-M3.1-Flash`; `MiniMax-M3` remains an optional larger model. Explicit model
+IDs, including saved legacy selections and custom provider configurations, are
+passed through unchanged. The presets do not request priority service.
 
 MiniMax cost estimates are unavailable. The current model-only estimator cannot
 distinguish regional pricing for the same model ID, so `--max-cost` rejects

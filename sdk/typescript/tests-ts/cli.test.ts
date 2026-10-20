@@ -890,8 +890,9 @@ describe("CLI", () => {
       "accounts/fireworks/models/qwen3-235b-a22b",
       FIREWORKS_CODEX_PROVIDER,
     ],
-    ["MiniMax", "minimax", "MiniMax-M3", MINIMAX_CODEX_PROVIDER],
-    ["MiniMax China", "minimax-cn", "MiniMax-M3", MINIMAX_CN_CODEX_PROVIDER],
+    ["MiniMax", "minimax", "MiniMax-M3.1-Flash", MINIMAX_CODEX_PROVIDER],
+    ["MiniMax China", "minimax-cn", "MiniMax-M3.1-Flash", MINIMAX_CN_CODEX_PROVIDER],
+    ["MiniMax M3", "minimax", "MiniMax-M3", MINIMAX_CODEX_PROVIDER],
   ] as const)(
     "routes bulk scans through %s",
     async (_name, provider, model, providerConfig) => {
